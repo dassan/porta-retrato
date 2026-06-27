@@ -13,12 +13,19 @@ const CACHE_SUFFIX = '.cache.jpg';
 // lá. Ative com a variável de ambiente SERVE_ONLY=1.
 const SERVE_ONLY = process.env.SERVE_ONLY === '1' || process.env.SERVE_ONLY === 'true';
 
-// sharp só é necessário (e só é exigido) fora do modo SERVE_ONLY, para que o
-// Raspberry Pi 1 não precise nem tentar compilá-lo.
+// sharp e heic-convert só são necessários (e só são exigidos) fora do modo
+// SERVE_ONLY, para que o Raspberry Pi 1 não precise nem tentar instalá-los.
+// heic-convert decodifica HEIC/HEIF (formato padrão de fotos do iPhone), que
+// os binários pré-compilados do sharp não suportam por causa de licenciamento
+// de patente do codec HEVC.
 let sharp = null;
+let heicConvert = null;
 if (!SERVE_ONLY) {
   sharp = require('sharp');
+  heicConvert = require('heic-convert');
 }
+
+const HEIC_EXT = new Set(['.heic', '.heif']);
 
 // Tamanho alvo: tela do iPad Mini 2 é 2048x1536 (retina), mas o hardware é
 // fraco para decodificar JPEGs muito grandes. 1600px de lado maior é um bom
@@ -87,11 +94,24 @@ app.get('/photos/:filename', async (req, res) => {
       const cacheIsFresh = cacheStat && cacheStat.mtimeMs >= originalStat.mtimeMs;
 
       if (!cacheIsFresh) {
-        await sharp(originalPath)
-          .rotate() // aplica orientação EXIF e remove o metadado
-          .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
-          .toFile(cachePath);
+        const resizeAndCache = (input) =>
+          sharp(input)
+            .rotate() // aplica orientação EXIF e remove o metadado
+            .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+            .toFile(cachePath);
+
+        try {
+          // Muitos arquivos ".heic" por aí são na verdade JPEGs renomeados
+          // (ex: reexportados por apps de edição), então sempre tentamos o
+          // sharp primeiro e só caímos para heic-convert se ele de fato falhar.
+          await resizeAndCache(originalPath);
+        } catch (sharpErr) {
+          if (!HEIC_EXT.has(path.extname(filename).toLowerCase())) throw sharpErr;
+          const heicBuffer = await fs.promises.readFile(originalPath);
+          const jpegBuffer = await heicConvert({ buffer: heicBuffer, format: 'JPEG', quality: 1 });
+          await resizeAndCache(jpegBuffer);
+        }
       }
 
       res.setHeader('Cache-Control', 'public, max-age=86400');

@@ -85,6 +85,13 @@ o Node oficial não compila mais para ARMv6 desde a v12.
 - **Conversão para JPEG no servidor**: garante compatibilidade mesmo se você
   jogar fotos em HEIC/PNG/WebP na pasta — o Safari do iOS 12 não decodifica
   todos esses formatos de forma confiável, mas JPEG sempre funciona.
+- **Suporte a HEIC via `heic-convert`**: os binários pré-compilados do
+  `sharp` não decodificam HEIC/HEIF (limitação de licenciamento do codec
+  HEVC), então o servidor tenta o `sharp` primeiro e só usa `heic-convert`
+  como decodificador de fallback quando o arquivo é HEIC de verdade — isso é
+  necessário porque é comum encontrar arquivos com extensão `.heic` que na
+  verdade são JPEGs renomeados (ex: reexportados por apps de edição de
+  fotos), e nesses casos o `sharp` já lida com eles diretamente.
 - **Sem Service Worker**: o suporte a Service Workers no iOS 12 é instável;
   a página é simples o suficiente para não precisar de cache offline.
 - **Crossfade via opacidade CSS** (não canvas/WebGL): muito mais leve para o

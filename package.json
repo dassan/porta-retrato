@@ -10,6 +10,7 @@
     "express": "^4.19.2"
   },
   "optionalDependencies": {
-    "sharp": "^0.33.4"
+    "sharp": "^0.33.4",
+    "heic-convert": "^2.1.0"
   }
 }
