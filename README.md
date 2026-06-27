@@ -27,6 +27,35 @@ Safari do iPad: `http://<IP-DO-PC>:3000`.
 
 Use `PORT=8080 npm start` para mudar a porta, se necessário.
 
+## Rodando em hardware fraco (ex: Raspberry Pi 1 Model B)
+
+O Raspberry Pi 1 (ARMv6, single-core 700MHz) é capaz de servir o slideshow,
+mas é lento demais para redimensionar fotos com a biblioteca `sharp`. O fluxo
+recomendado é processar as fotos no seu PC e copiar só o resultado para o Pi:
+
+1. No PC, com as fotos em `fotos-originais/`, rode o servidor normalmente
+   (`npm start`) e abra `http://localhost:3000` no navegador — basta navegar
+   pelas fotos (ou chamar `GET /photos/<nome-do-arquivo>` para cada uma) para
+   gerar o cache de todas elas em `cache/`.
+2. Copie a pasta `cache/` inteira do PC para o mesmo lugar no projeto no Pi
+   (ex: via `scp`, pendrive ou SMB). Não é necessário copiar
+   `fotos-originais/` nem `node_modules/sharp`.
+3. No Pi, instale as dependências e suba o servidor em modo
+   "somente servir", que nunca carrega nem exige o `sharp`:
+   ```
+   npm install
+   SERVE_ONLY=1 npm start
+   ```
+   `npm install` tenta instalar o `sharp` (ele é uma dependência opcional),
+   mas se falhar no ARMv6 isso não impede o app de funcionar em `SERVE_ONLY`.
+4. Para adicionar fotos depois, sempre gere o cache primeiro no PC (passo 1)
+   e copie os arquivos novos de `cache/` para o Pi — em `SERVE_ONLY=1` o
+   servidor só lê o que já está cacheado, nunca o `fotos-originais/`.
+
+No Pi, talvez seja necessário instalar uma versão de Node.js via
+[unofficial-builds.nodejs.org](https://unofficial-builds.nodejs.org/) já que
+o Node oficial não compila mais para ARMv6 desde a v12.
+
 ## Configurando o slideshow
 
 - Intervalo entre fotos: `http://<IP-DO-PC>:3000/?interval=20000` (ms).
