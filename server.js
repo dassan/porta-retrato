@@ -67,9 +67,70 @@ app.get('/api/photos', (req, res) => {
   });
 });
 
+function cachePathFor(filename) {
+  return path.join(CACHE_DIR, `${filename}${CACHE_SUFFIX}`);
+}
+
+// Gera (se necessário) a versão em cache de uma foto. Retorna o caminho do
+// cache, ou null se a foto original não existir.
+async function ensureCached(filename) {
+  const originalPath = path.join(PHOTOS_DIR, filename);
+  const cachePath = cachePathFor(filename);
+
+  const originalStat = await fs.promises.stat(originalPath).catch(() => null);
+  if (!originalStat) return null;
+
+  const cacheStat = await fs.promises.stat(cachePath).catch(() => null);
+  if (cacheStat && cacheStat.mtimeMs >= originalStat.mtimeMs) return cachePath;
+
+  const resizeAndCache = (input) =>
+    sharp(input)
+      .rotate() // aplica orientação EXIF e remove o metadado
+      .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+      .toFile(cachePath);
+
+  try {
+    // Muitos arquivos ".heic" por aí são na verdade JPEGs renomeados
+    // (ex: reexportados por apps de edição), então sempre tentamos o
+    // sharp primeiro e só caímos para heic-convert se ele de fato falhar.
+    await resizeAndCache(originalPath);
+  } catch (sharpErr) {
+    if (!HEIC_EXT.has(path.extname(filename).toLowerCase())) throw sharpErr;
+    const heicBuffer = await fs.promises.readFile(originalPath);
+    const jpegBuffer = await heicConvert({ buffer: heicBuffer, format: 'JPEG', quality: 1 });
+    await resizeAndCache(jpegBuffer);
+  }
+
+  return cachePath;
+}
+
+// Pré-processa todas as fotos pendentes em segundo plano, uma por vez, para
+// que o slideshow não precise esperar o redimensionamento na primeira vez
+// que cada foto aparece. Roda a cada inicialização para pegar fotos novas
+// adicionadas desde a última vez.
+async function warmupCache() {
+  const files = await fs.promises.readdir(PHOTOS_DIR);
+  const photos = files.filter((f) => VALID_EXT.has(path.extname(f).toLowerCase()));
+
+  let done = 0;
+  for (const filename of photos) {
+    try {
+      await ensureCached(filename);
+    } catch (e) {
+      console.error(`Erro pré-processando ${filename}:`, e.message);
+    }
+    done++;
+    if (done % 25 === 0 || done === photos.length) {
+      console.log(`Pré-processamento de fotos: ${done}/${photos.length}`);
+    }
+  }
+  console.log('Pré-processamento de fotos concluído.');
+}
+
 app.get('/photos/:filename', async (req, res) => {
   const filename = path.basename(req.params.filename);
-  const cachePath = path.join(CACHE_DIR, `${filename}${CACHE_SUFFIX}`);
+  const cachePath = cachePathFor(filename);
 
   if (!VALID_EXT.has(path.extname(filename).toLowerCase())) {
     return res.status(400).send('Formato não suportado');
@@ -82,49 +143,24 @@ app.get('/photos/:filename', async (req, res) => {
     });
   }
 
-  const originalPath = path.join(PHOTOS_DIR, filename);
-
-  fs.stat(originalPath, async (err, originalStat) => {
-    if (err) {
+  try {
+    const resolvedCachePath = await ensureCached(filename);
+    if (!resolvedCachePath) {
       return res.status(404).send('Foto não encontrada');
     }
-
-    try {
-      const cacheStat = await fs.promises.stat(cachePath).catch(() => null);
-      const cacheIsFresh = cacheStat && cacheStat.mtimeMs >= originalStat.mtimeMs;
-
-      if (!cacheIsFresh) {
-        const resizeAndCache = (input) =>
-          sharp(input)
-            .rotate() // aplica orientação EXIF e remove o metadado
-            .resize(MAX_SIDE, MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
-            .toFile(cachePath);
-
-        try {
-          // Muitos arquivos ".heic" por aí são na verdade JPEGs renomeados
-          // (ex: reexportados por apps de edição), então sempre tentamos o
-          // sharp primeiro e só caímos para heic-convert se ele de fato falhar.
-          await resizeAndCache(originalPath);
-        } catch (sharpErr) {
-          if (!HEIC_EXT.has(path.extname(filename).toLowerCase())) throw sharpErr;
-          const heicBuffer = await fs.promises.readFile(originalPath);
-          const jpegBuffer = await heicConvert({ buffer: heicBuffer, format: 'JPEG', quality: 1 });
-          await resizeAndCache(jpegBuffer);
-        }
-      }
-
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(cachePath);
-    } catch (e) {
-      console.error(`Erro processando ${filename}:`, e);
-      res.status(500).send('Falha ao processar imagem');
-    }
-  });
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.sendFile(resolvedCachePath);
+  } catch (e) {
+    console.error(`Erro processando ${filename}:`, e);
+    res.status(500).send('Falha ao processar imagem');
+  }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Porta-retrato disponível em http://<ip-do-pc>:${PORT}`);
+  if (!SERVE_ONLY) {
+    warmupCache().catch((e) => console.error('Erro no pré-processamento:', e));
+  }
 });

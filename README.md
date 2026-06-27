@@ -8,9 +8,12 @@ em tela cheia via Safari.
 
 - Você coloca as fotos (qualquer formato/tamanho) na pasta `fotos-originais/`.
 - O servidor as redimensiona automaticamente (máx. 1600px no lado maior,
-  JPEG qualidade 80) e guarda em `cache/` na primeira vez que cada foto é
-  acessada. Isso evita que o iPad precise decodificar fotos de 12MP+, o que
-  o travaria.
+  JPEG qualidade 80) e guarda em `cache/`. Isso evita que o iPad precise
+  decodificar fotos de 12MP+, o que o travaria.
+- A cada inicialização (fora do modo `SERVE_ONLY`), o servidor já sobe e
+  começa a responder imediatamente, mas pré-processa em segundo plano todas
+  as fotos que ainda não têm cache válido — assim você não precisa esperar
+  o slideshow chegar em cada foto para só então ela ser redimensionada.
 - A página `public/` mostra um slideshow em tela cheia com fade suave entre
   fotos, em ordem aleatória.
 
