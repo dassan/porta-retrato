@@ -1,0 +1,13 @@
+{
+  "name": "porta-retrato",
+  "version": "1.0.0",
+  "description": "Servidor local de porta-retrato digital para iPad antigo (Safari)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "sharp": "^0.33.4"
+  }
+}
